@@ -36,17 +36,31 @@ runs:
         username: ${{ inputs.registry-username }}
         password: ${{ inputs.registry-password }}
 
-    - id: set-tag
-      name: Set image tag
+    - id: parse-metadata
+      name: Parse metadata
       shell: bash
       run: |
-        IMAGE_TAG=$(cat ${{ inputs.manifest-file }} | jq -r '"${{ inputs.docker-registry-url }}/\(.name | capture("^(?<scope>@[^/]+)?/?(?<name>.+)$").name):\(.version)"')
-        echo "image-tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+        IMAGE_NAME=$(cat ${{ inputs.manifest-file }} | jq -r '"${{ inputs.docker-registry-url }}/\(.name | capture("^(?<scope>@[^/]+)?/?(?<name>.+)$").name)"')
+        IMAGE_VERSION=$(cat ${{ inputs.manifest-file }} | jq -r '"\(.version)"')
+        echo "image-name=$IMAGE_NAME" >> $GITHUB_OUTPUT
+        echo "image-version=$IMAGE_VERSION" >> $GITHUB_OUTPUT
+
+    - id: define-metadata
+      name: Define image metadata
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ steps.parse-metadata.outputs.image-name }}
+        flavor: latest=false
+        tags: |
+          type=semver,pattern={{version}},value=${{ steps.parse-metadata.outputs.image-version }}
+          type=semver,pattern={{major}}.{{minor}},value=${{ steps.parse-metadata.outputs.image-version }}
+          type=semver,pattern={{major}},value=${{ steps.parse-metadata.outputs.image-version }}
+          type=sha
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
       with:
         context: .
         push: true
-        tags: ${{ steps.set-tag.outputs.image-tag }}
+        tags: ${{ steps.define-metadata.outputs.tags }}
         build-args: ${{ inputs.build-args }}
